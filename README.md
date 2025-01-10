@@ -1,10 +1,11 @@
 ## Features
-1. spin up EC2 instance based on amazon linux2 on default VPC public subnet
+
+Create EKS Cluster on Default VPC with multiple EKS Add on [ coredns, vpc-cni, ebs-csi-drive, efs-csi-driver, kube-proxy, ALB controller ] 
 
 ## Usage
 
 ```
-module "ec2module" {
+module "eksmodule" {
   source  = "rajibpodder12/eksmodule/aws"
   version = "1.0.0"
   # insert the 1 required variables here
