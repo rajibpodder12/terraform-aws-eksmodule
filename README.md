@@ -26,3 +26,4 @@ module "eksmodule" {
 |helm| 2.17.0 |
 |kubernetes| 2.35.1 |
 |local|2.5.2|
+|random|3.6.3|
