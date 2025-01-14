@@ -1,6 +1,6 @@
 ## Features
 
-Create EKS Cluster on Default VPC with multiple EKS Add on [ coredns, vpc-cni, ebs-csi-drive, efs-csi-driver, kube-proxy, ALB controller ] 
+Create EKS Cluster, Single managed Node group on Default VPC with multiple EKS Add on [ coredns, vpc-cni, ebs-csi-drive, efs-csi-driver, kube-proxy, ALB controller ] 
 
 ## Usage
 
