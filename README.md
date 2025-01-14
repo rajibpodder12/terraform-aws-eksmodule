@@ -7,12 +7,12 @@ Create EKS Cluster on Default VPC with multiple EKS Add on [ coredns, vpc-cni, e
 ```
 module "eksmodule" {
   source  = "rajibpodder12/eksmodule/aws"
-  version = "1.0.0"
-  # insert the 1 required variables here
+  version = "2.0.0"
+  # insert the required variables here
   region = "<region_name>"
   eks_cluster_name = "<eks_cluster_name>"
   eks_cluster_version = "<eks_cluster_version>"
-  eks_node_group_name = "<eks_node_group_name>"
+  capacity_type = "<ON_DEMAND|SPOT>"
 }
 
 ```
