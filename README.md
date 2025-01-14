@@ -7,7 +7,7 @@ Create EKS Cluster, Single managed Node group on Default VPC with multiple EKS A
 ```
 module "eksmodule" {
   source  = "rajibpodder12/eksmodule/aws"
-  version = "2.0.0"
+  version = "3.0.0"
   # insert the required variables here
   region = "<region_name>"
   instance_types = "<instance_types>"
