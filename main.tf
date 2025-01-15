@@ -510,16 +510,17 @@ resource "aws_prometheus_scraper" "example" {
 
   scrape_configuration = <<EOT
 global:
-  scrape_interval: 30s
+   scrape_interval: 30s
+   external_labels:
+     clusterArn: ${data.aws_eks_cluster.eks_cluster_info.arn}
 scrape_configs:
-  # pod metrics
   - job_name: pod_exporter
     kubernetes_sd_configs:
       - role: pod
-  # container metrics
   - job_name: cadvisor
     scheme: https
     authorization:
+      type: Bearer
       credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
     kubernetes_sd_configs:
       - role: node
@@ -533,7 +534,10 @@ scrape_configs:
         target_label: __metrics_path__
         replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
   # apiserver metrics
-  - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  - scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
     job_name: kubernetes-apiservers
     kubernetes_sd_configs:
     - role: endpoints
@@ -544,7 +548,6 @@ scrape_configs:
       - __meta_kubernetes_namespace
       - __meta_kubernetes_service_name
       - __meta_kubernetes_endpoint_port_name
-    scheme: https
   # kube proxy metrics
   - job_name: kube-proxy
     honor_labels: true
@@ -563,5 +566,33 @@ scrape_configs:
       target_label: __address__
       regex: (.+?)(\\:\\d+)?
       replacement: $1:10249
+  # Scheduler metrics
+  - job_name: 'ksh-metrics'
+    kubernetes_sd_configs:
+    - role: endpoints
+    metrics_path: /apis/metrics.eks.amazonaws.com/v1/ksh/container/metrics
+    scheme: https
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+    - source_labels:
+      - __meta_kubernetes_namespace
+      - __meta_kubernetes_service_name
+      - __meta_kubernetes_endpoint_port_name
+      action: keep
+      regex: default;kubernetes;https
+  # Controller Manager metrics
+  - job_name: 'kcm-metrics'
+    kubernetes_sd_configs:
+    - role: endpoints
+    metrics_path: /apis/metrics.eks.amazonaws.com/v1/kcm/container/metrics
+    scheme: https
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+    - source_labels:
+      - __meta_kubernetes_namespace
+      - __meta_kubernetes_service_name
+      - __meta_kubernetes_endpoint_port_name
+      action: keep
+      regex: default;kubernetes;https
 EOT
 }
