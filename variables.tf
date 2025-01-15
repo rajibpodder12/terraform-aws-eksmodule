@@ -3,7 +3,7 @@ variable "eks_cluster_version" {
     type = string
 }
 variable "instance_types" {
-    description = "input intended intended instance types"
+    description = "input intended instance types"
     type = list(string)
 }
 variable "capacity_type" {
