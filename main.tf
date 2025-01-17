@@ -183,7 +183,7 @@ locals {
 
 resource "aws_eks_node_group" "eks_node_group" {
   ami_type       = "AL2023_x86_64_STANDARD"
-  capacity_type  = "ON_DEMAND"
+  capacity_type  = var.capacity_type
   cluster_name   = aws_eks_cluster.ekscluster.name
   disk_size      = 20
   instance_types = var.instance_types
@@ -454,7 +454,7 @@ resource "helm_release" "alb-controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
-  version    = "1.5.4" #"1.11.0"
+  #version    = "1.5.4" #"1.11.0"
   namespace  = "kube-system"
 
   set {
@@ -495,6 +495,7 @@ resource "aws_prometheus_workspace" "example" {
 }
 
 resource "aws_prometheus_scraper" "example" {
+  depends_on = [ null_resource.action ]
   source {
     eks {
       cluster_arn = data.aws_eks_cluster.eks_cluster_info.arn
@@ -595,4 +596,219 @@ scrape_configs:
       action: keep
       regex: default;kubernetes;https
 EOT
+}
+
+######Creating amp-iamproxy-ingest-role Role
+
+data "aws_iam_policy_document" "amp_iamproxy_ingest_assume" {
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_issuer}"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_issuer}:sub"
+
+      values = [
+        "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account",
+      ]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_issuer}:aud"
+
+      values = [
+        "sts.amazonaws.com"
+      ]
+    }
+
+    effect = "Allow"
+  }
+}
+
+resource "aws_iam_policy" "PermissionPolicyIngest" {
+  name        = "PermissionPolicyIngest_${random_id.random_id.hex}"
+  path        = "/"
+  description = "PermissionPolicyIngest"
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "aps:RemoteWrite", 
+          "aps:GetSeries", 
+          "aps:GetLabels",
+          "aps:GetMetricMetadata"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+
+resource "aws_iam_role" "amp_iamproxy_ingest_role" {
+  name               = "amp_iamproxy_ingest_role_${random_id.random_id.hex}"
+  assume_role_policy = data.aws_iam_policy_document.amp_iamproxy_ingest_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "amp_iamproxy_ingest_role" {
+  role       = aws_iam_role.amp_iamproxy_ingest_role.name
+  policy_arn = aws_iam_policy.PermissionPolicyIngest.arn
+}
+
+##create  amp_iamproxy_role.yaml file
+
+
+resource "local_file" "amp_prometheus_tpl" {
+  content = templatefile("${path.module}/amp_prometheus.tpl", {
+    amp_ingest_role = aws_iam_role.amp_iamproxy_ingest_role.arn,
+    prometheus_endpoint = aws_prometheus_workspace.example.prometheus_endpoint
+    region = var.region
+  })
+  filename = "${path.cwd}/amp_prometheus_${random_id.random_id.hex}.yaml"
+
+}
+
+### Deploying prometheus
+
+resource "kubernetes_namespace" "prometheus" {
+  depends_on = [ aws_prometheus_workspace.example,aws_prometheus_scraper.example ]
+  metadata {
+    name = "prometheus"
+  }
+}
+
+resource "helm_release" "prometheus" {
+  depends_on = [ kubernetes_namespace.prometheus,aws_prometheus_workspace.example,aws_prometheus_scraper.example ]
+  name = "prometheus"
+  repository = "https://prometheus-community.github.io/helm-charts"
+  chart = "prometheus"
+  namespace = kubernetes_namespace.prometheus.id
+  create_namespace = true
+  values = [file("${path.cwd}/amp_prometheus_${random_id.random_id.hex}.yaml")]
+  timeout = 3000
+  set {
+    name = "server.persistentVolume.enabled"
+    value = false
+  }
+  set {
+    name = "alertmanager.enabled"
+    value = false
+  }
+  set {
+    name = "prometheus-pushgateway.enabled"
+    value = false
+  }
+}
+
+#######Create Grafana
+
+######Creating amp-iamproxy-ingest-role Role
+
+data "aws_iam_policy_document" "prometheus_query" {
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_issuer}"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_issuer}:sub"
+
+      values = [
+       "system:serviceaccount:grafana:amp-iamproxy-query-service-account"
+      ]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_issuer}:aud"
+
+      values = [
+        "sts.amazonaws.com"
+      ]
+    }
+
+    effect = "Allow"
+  }
+}
+
+resource "aws_iam_policy" "prometheus_query" {
+  name        = "prometheus_query_${random_id.random_id.hex}"
+  path        = "/"
+  description = "prometheus_query"
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+                "aps:GetLabels",
+                "aps:GetMetricMetadata",
+                "aps:GetSeries",
+                "aps:QueryMetrics"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+
+resource "aws_iam_role" "grafana_query_role" {
+  name               = "grafana_role_${random_id.random_id.hex}"
+  assume_role_policy = data.aws_iam_policy_document.prometheus_query.json
+}
+
+resource "aws_iam_role_policy_attachment" "grafana_query_role" {
+  role       = aws_iam_role.grafana_query_role.name
+  policy_arn = aws_iam_policy.prometheus_query.arn
+}
+
+##create  amp_iamproxy_role.yaml file
+
+
+resource "local_file" "grafana_query_override_values" {
+  content = templatefile("${path.module}/amp_query_override_values.tpl", {
+    grafana_ingest_role = aws_iam_role.grafana_query_role.arn
+  })
+  filename = "${path.cwd}/amp_query_override_values_${random_id.random_id.hex}.yaml"
+
+}
+
+### Deploying grafana
+
+resource "kubernetes_namespace" "grafana" {
+  depends_on = [null_resource.action]
+  metadata {
+    name = "grafana"
+  }
+}
+
+resource "helm_release" "grafana" {
+  depends_on = [ kubernetes_namespace.grafana]
+  name = "grafana"
+  repository = "https://grafana.github.io/helm-charts"
+  chart = "grafana"
+  namespace = kubernetes_namespace.grafana.id
+  create_namespace = true
+  values = [file("${path.cwd}/amp_query_override_values_${random_id.random_id.hex}.yaml")]
 }
